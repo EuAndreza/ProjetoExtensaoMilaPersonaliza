@@ -309,47 +309,45 @@
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <script>
-/* ════════════════════════════════════════════
-   CONFIGURAÇÃO — salva no localStorage
-════════════════════════════════════════════ */
-let SHEET_ID   = localStorage.getItem('mila_sheet_id')   || '1w_j3KB7t9ZOQkS0qfKNTNQga_VJfs0C7wBPClr75YGE';
+/* ════════════════════════════════════════
+   CONFIG — salva no localStorage
+════════════════════════════════════════ */
 let SCRIPT_URL = localStorage.getItem('mila_script_url') || 'https://script.google.com/macros/s/AKfycbxyrbR-pgdoVKitUWbNiF2V_q6Owo4pZt_qv1OVrffPGoxmezLI9fXA1QVTxnaxWAjaoA/exec';
+let PRODUTOS   = [];
+let numeroPedido = '', dataEntrega = '';
 
 function salvarConfig(){
   SCRIPT_URL = document.getElementById('script-url').value.trim();
   localStorage.setItem('mila_script_url', SCRIPT_URL);
 }
 
-// Restaurar ao abrir
 window.addEventListener('DOMContentLoaded', () => {
-  if(SCRIPT_URL) document.getElementById('script-url').value = SCRIPT_URL;
+  document.getElementById('script-url').value = SCRIPT_URL;
   if(SCRIPT_URL) conectarSheet();
 });
 
-/* ════════════════════════════════════════════
-   ESTADO DE PRODUTOS
-════════════════════════════════════════════ */
-let PRODUTOS = []; // [{nome, preco}]
-
+/* ════════════════════════════════════════
+   STATUS
+════════════════════════════════════════ */
 function setStatus(tipo, msg){
   const el = document.getElementById('status-conn');
   el.className = 'status-bar ' + tipo;
   el.querySelector('span').textContent = msg;
 }
 
-/* ════════════════════════════════════════════
-   CONECTAR E CARREGAR PRODUTOS DO SHEETS
-════════════════════════════════════════════ */
+/* ════════════════════════════════════════
+   CONECTAR E CARREGAR PRODUTOS
+════════════════════════════════════════ */
 async function conectarSheet(){
   SCRIPT_URL = document.getElementById('script-url').value.trim();
-  if(!SCRIPT_URL){ setStatus('erro', 'URL do Apps Script não configurada.'); return; }
+  if(!SCRIPT_URL){ setStatus('erro','URL do Apps Script não configurada.'); return; }
 
-  setStatus('carregando', 'Carregando produtos...');
+  setStatus('carregando','Carregando produtos...');
   document.getElementById('loading-produtos').style.display = 'block';
-  document.getElementById('sem-produtos').style.display = 'none';
+  document.getElementById('sem-produtos').style.display    = 'none';
 
   try {
-    const url = SCRIPT_URL + '?action=getProdutos&cb=' + Date.now();
+    const url  = SCRIPT_URL + '?action=getProdutos&cb=' + Date.now();
     const resp = await fetch(url);
     if(!resp.ok) throw new Error('Erro ao acessar o Apps Script. Verifique o URL.');
     const json = await resp.json();
@@ -362,19 +360,140 @@ async function conectarSheet(){
     document.getElementById('loading-produtos').style.display = 'none';
 
   } catch(e) {
-    setStatus('erro', '✗ ' + e.message);
+    setStatus('erro','✗ ' + e.message);
     document.getElementById('loading-produtos').style.display = 'none';
-    document.getElementById('sem-produtos').style.display = 'block';
-    document.getElementById('sem-produtos').textContent = '⚠️ ' + e.message;
+    document.getElementById('sem-produtos').style.display    = 'block';
+    document.getElementById('sem-produtos').textContent      = '⚠️ ' + e.message;
   }
 }
+
+/* ════════════════════════════════════════
+   RENDERIZAR PRODUTOS
+════════════════════════════════════════ */
+function renderizarProdutos(){
+  // chips de preço
+  document.getElementById('preco-list').innerHTML = PRODUTOS.map(p =>
+    `<div class="preco-chip">${p.nome} — <strong>${brl(p.preco)}</strong></div>`
+  ).join('');
+
+  // linhas de seleção (mín 3, máx 6)
+  const qtdLinhas = Math.min(Math.max(PRODUTOS.length, 3), 6);
+  document.getElementById('produtos-lista').innerHTML = Array.from({length: qtdLinhas}, (_,i) => `
+    <div class="produto-row">
+      <div class="field">
+        <label>Produto ${i+1}</label>
+        <select class="seletor" onchange="calcular()">
+          <option value="">— selecione —</option>
+          ${PRODUTOS.map(p => `<option value="${p.nome}">${p.nome}</option>`).join('')}
+        </select>
+      </div>
+      <div class="field">
+        <label>Qtd</label>
+        <input type="number" class="qtd" min="0" value="0" oninput="calcular()">
+      </div>
+      <div>
+        <div class="subtotal-label">Subtotal</div>
+        <div class="subtotal-val sub-val">R$ 0,00</div>
+      </div>
+    </div>
+  `).join('');
+
+  document.getElementById('sem-produtos').style.display = 'none';
+  calcular();
+}
+
+/* ════════════════════════════════════════
+   UTILITÁRIOS
+════════════════════════════════════════ */
+function brl(v){ return 'R$ ' + Number(v).toFixed(2).replace('.',','); }
+function fmt(d){ return d.toLocaleDateString('pt-BR'); }
+function gerarNumeroPedido(){ return 'PED-' + Date.now().toString().slice(-6); }
+function gerarEntrega(){
+  const d = new Date();
+  d.setDate(d.getDate() + Math.floor(Math.random()*6) + 2);
+  return fmt(d);
+}
+
+function mascaraTel(el){
+  let v = el.value.replace(/\D/g,'');
+  if(v.length > 11) v = v.slice(0,11);
+  if(v.length > 6)      v = '('+v.slice(0,2)+') '+v.slice(2,7)+'-'+v.slice(7);
+  else if(v.length > 2) v = '('+v.slice(0,2)+') '+v.slice(2);
+  else if(v.length > 0) v = '('+v;
+  el.value = v;
+}
+
+function getPreco(nome){
+  const p = PRODUTOS.find(p => p.nome === nome);
+  return p ? p.preco : 0;
+}
+
+function getItens(){
+  const seletores = document.querySelectorAll('.seletor');
+  const qtds      = document.querySelectorAll('.qtd');
+  const subs      = document.querySelectorAll('.sub-val');
+  const itens     = [];
+  seletores.forEach((sel,i) => {
+    const prod  = sel.value;
+    const qtd   = parseInt(qtds[i].value) || 0;
+    const preco = prod ? getPreco(prod) : 0;
+    const sub   = prod && qtd > 0 ? preco * qtd : 0;
+    if(subs[i]) subs[i].textContent = sub > 0 ? brl(sub) : 'R$ 0,00';
+    if(prod && qtd > 0) itens.push({prod, qtd, preco, sub});
+  });
+  return itens;
+}
+
+function calcular(){
+  const itens = getItens();
+  const total = itens.reduce((s,i) => s + i.sub, 0);
+  const container = document.getElementById('resumo-itens');
+  container.innerHTML = itens.length === 0
+    ? '<div id="empty-msg">Selecione os produtos acima</div>'
+    : itens.map(i => `<div class="resumo-linha"><span>${i.prod} × ${i.qtd}</span><span>${brl(i.sub)}</span></div>`).join('');
+  document.getElementById('total-display').textContent = brl(total);
+}
+
+function validar(){
+  const cliente  = document.getElementById('cliente').value.trim();
+  const telefone = document.getElementById('telefone').value.trim();
+  const endereco = document.getElementById('endereco').value.trim();
+  const itens    = getItens();
+  if(!cliente)         { mostrarAlerta('Preencha o nome do cliente.','erro');        return false; }
+  if(!telefone)        { mostrarAlerta('Preencha o telefone.','erro');               return false; }
+  if(!endereco)        { mostrarAlerta('Preencha o endereço de entrega.','erro');    return false; }
+  if(itens.length===0) { mostrarAlerta('Adicione pelo menos um produto.','erro');    return false; }
+  return true;
+}
+
+function preparar(){
+  if(!numeroPedido){
+    numeroPedido = gerarNumeroPedido();
+    dataEntrega  = gerarEntrega();
+    document.getElementById('num-pedido').textContent   = numeroPedido;
+    document.getElementById('data-emissao').textContent = fmt(new Date());
+    document.getElementById('data-entrega').textContent = dataEntrega;
+  }
+}
+
+function mostrarAlerta(msg, tipo){
+  const el = document.getElementById('alerta');
+  el.textContent = msg;
+  el.className   = 'alerta ' + tipo;
+  el.scrollIntoView({behavior:'smooth', block:'nearest'});
+  setTimeout(() => { el.className = 'alerta'; }, 5000);
+}
+
+/* ════════════════════════════════════════
+   SALVAR NO GOOGLE SHEETS
+════════════════════════════════════════ */
 async function salvarNaSheet(){
   if(!validar()) return;
-  if(!SCRIPT_URL){ mostrarAlerta('Configure o URL do Apps Script para salvar pedidos.','erro'); return; }
+  if(!SCRIPT_URL){ mostrarAlerta('Configure o URL do Apps Script.','erro'); return; }
   preparar();
 
   const btn = document.getElementById('btn-sheets');
-  btn.disabled = true;
+  btn.disabled    = true;
   btn.textContent = '⏳ Salvando...';
 
   const cliente  = document.getElementById('cliente').value.trim();
@@ -384,42 +503,36 @@ async function salvarNaSheet(){
   const total    = itens.reduce((s,i) => s + i.sub, 0);
 
   const payload = {
-    numeroPedido,
-    data:       fmt(new Date()),
-    entrega:    dataEntrega,
-    cliente,
-    telefone,
-    endereco,
-    itens:      itens.map(i => `${i.prod} x${i.qtd}`).join(' | '),
-    total:      total.toFixed(2).replace('.',',')
+    numeroPedido, data: fmt(new Date()), entrega: dataEntrega,
+    cliente, telefone, endereco,
+    itens:  itens.map(i => `${i.prod} x${i.qtd}`).join(' | '),
+    total:  total.toFixed(2).replace('.',',')
   };
 
   try {
     await fetch(SCRIPT_URL, {
-      method: 'POST',
-      mode:   'no-cors',
-      headers: { 'Content-Type': 'application/json' },
-      body:    JSON.stringify(payload)
+      method:'POST', mode:'no-cors',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify(payload)
     });
-    mostrarAlerta(`✓ Pedido ${numeroPedido} salvo no Google Sheets!`, 'sucesso');
+    mostrarAlerta(`✓ Pedido ${numeroPedido} salvo no Google Sheets!`,'sucesso');
   } catch(e) {
-    mostrarAlerta('Erro ao salvar. Verifique o URL do Apps Script.', 'erro');
+    mostrarAlerta('Erro ao salvar. Verifique o URL do Apps Script.','erro');
   } finally {
     btn.disabled = false;
     btn.innerHTML = '📊 Salvar no Google Sheets';
   }
 }
 
-/* ════════════════════════════════════════════
+/* ════════════════════════════════════════
    GERAR PDF
-════════════════════════════════════════════ */
+════════════════════════════════════════ */
 async function gerarPDF(){
   if(!validar()) return;
   preparar();
 
-  const { jsPDF } = window.jspdf;
-  const doc = new jsPDF({ unit:'mm', format:'a4' });
-
+  const {jsPDF} = window.jspdf;
+  const doc = new jsPDF({unit:'mm', format:'a4'});
   const cliente  = document.getElementById('cliente').value.trim();
   const telefone = document.getElementById('telefone').value.trim();
   const endereco = document.getElementById('endereco').value.trim();
@@ -427,91 +540,77 @@ async function gerarPDF(){
   const total    = itens.reduce((s,i) => s + i.sub, 0);
   const hoje     = fmt(new Date());
 
-  const COR_VINHO   = [122,16,48];
-  const COR_VINHO_L = [249,237,241];
-  const COR_DOURADO = [184,136,42];
-  const COR_TEXTO   = [28,28,28];
-  const COR_CINZA   = [107,114,128];
-  const W = 210; const MARGIN = 18;
+  const CV=[122,16,48], CVL=[249,237,241], CD=[184,136,42], CT=[28,28,28], CG=[107,114,128];
+  const W=210, M=18;
 
-  doc.setFillColor(...COR_VINHO);
-  doc.roundedRect(0,0,W,45,0,0,'F');
-  doc.setDrawColor(...COR_DOURADO);
-  doc.setLineWidth(0.5);
-  doc.line(MARGIN,40,W-MARGIN,40);
+  doc.setFillColor(...CV); doc.roundedRect(0,0,W,45,0,0,'F');
+  doc.setDrawColor(...CD); doc.setLineWidth(0.5); doc.line(M,40,W-M,40);
 
   try {
     const logoEl = document.querySelector('.header-logo');
     if(logoEl && logoEl.src) doc.addImage(logoEl.src,'JPEG',W/2-10,4,20,20,'','FAST');
   } catch(e){}
 
-  doc.setFont('helvetica','bold');
-  doc.setFontSize(16); doc.setTextColor(255,255,255);
+  doc.setFont('helvetica','bold'); doc.setFontSize(16); doc.setTextColor(255,255,255);
   doc.text('Mila Personaliza', W/2, 30, {align:'center'});
-  doc.setFontSize(8); doc.setFont('helvetica','normal'); doc.setTextColor(...COR_DOURADO);
+  doc.setFontSize(8); doc.setFont('helvetica','normal'); doc.setTextColor(...CD);
   doc.text('— PEDIDO —', W/2, 37, {align:'center'});
 
-  const chips = [
-    {label:'Nº Pedido', val:numeroPedido},
-    {label:'Emissão',   val:hoje},
-    {label:'Entrega',   val:dataEntrega},
-  ];
-  const chipW = (W-MARGIN*2-16)/3;
-  chips.forEach((c,idx) => {
-    const x = MARGIN + idx*(chipW+8);
-    doc.setFillColor(255,255,255); doc.roundedRect(x,50,chipW,16,3,3,'F');
-    doc.setFont('helvetica','bold'); doc.setFontSize(6.5); doc.setTextColor(...COR_CINZA);
-    doc.text(c.label.toUpperCase(), x+chipW/2, 56, {align:'center'});
-    doc.setFontSize(8.5); doc.setTextColor(...COR_TEXTO);
-    doc.text(c.val, x+chipW/2, 62, {align:'center'});
+  const chips=[{label:'Nº Pedido',val:numeroPedido},{label:'Emissão',val:hoje},{label:'Entrega',val:dataEntrega}];
+  const cW=(W-M*2-16)/3;
+  chips.forEach((c,i)=>{
+    const x=M+i*(cW+8);
+    doc.setFillColor(255,255,255); doc.roundedRect(x,50,cW,16,3,3,'F');
+    doc.setFont('helvetica','bold'); doc.setFontSize(6.5); doc.setTextColor(...CG);
+    doc.text(c.label.toUpperCase(),x+cW/2,56,{align:'center'});
+    doc.setFontSize(8.5); doc.setTextColor(...CT);
+    doc.text(c.val,x+cW/2,62,{align:'center'});
   });
 
-  let y = 78;
-  doc.setFillColor(...COR_VINHO_L); doc.roundedRect(MARGIN,y,W-MARGIN*2,32,4,4,'F');
-  doc.setFillColor(...COR_VINHO);   doc.roundedRect(MARGIN,y,4,32,2,2,'F');
-  doc.setFont('helvetica','bold'); doc.setFontSize(7); doc.setTextColor(...COR_CINZA);
-  doc.text('CLIENTE', MARGIN+10, y+7);
-  doc.setFontSize(11); doc.setTextColor(...COR_TEXTO);
-  doc.text(cliente, MARGIN+10, y+15);
-  doc.setFont('helvetica','normal'); doc.setFontSize(8.5); doc.setTextColor(...COR_CINZA);
-  doc.text(`Tel: ${telefone}   End: ${endereco}`, MARGIN+10, y+23);
+  let y=78;
+  doc.setFillColor(...CVL); doc.roundedRect(M,y,W-M*2,32,4,4,'F');
+  doc.setFillColor(...CV);  doc.roundedRect(M,y,4,32,2,2,'F');
+  doc.setFont('helvetica','bold'); doc.setFontSize(7); doc.setTextColor(...CG);
+  doc.text('CLIENTE',M+10,y+7);
+  doc.setFontSize(11); doc.setTextColor(...CT); doc.text(cliente,M+10,y+15);
+  doc.setFont('helvetica','normal'); doc.setFontSize(8.5); doc.setTextColor(...CG);
+  doc.text(`Tel: ${telefone}   End: ${endereco}`,M+10,y+23);
 
-  y = 120;
-  doc.setFillColor(...COR_VINHO); doc.roundedRect(MARGIN,y,W-MARGIN*2,10,3,3,'F');
+  y=120;
+  doc.setFillColor(...CV); doc.roundedRect(M,y,W-M*2,10,3,3,'F');
   doc.setFont('helvetica','bold'); doc.setFontSize(8); doc.setTextColor(255,255,255);
-  const cols = [MARGIN+6,MARGIN+90,MARGIN+115,MARGIN+148];
-  ['Produto','Qtd','Valor Unitário','Valor Total'].forEach((h,i) => doc.text(h,cols[i],y+6.5));
+  const cols=[M+6,M+90,M+115,M+148];
+  ['Produto','Qtd','Valor Unitário','Valor Total'].forEach((h,i)=>doc.text(h,cols[i],y+6.5));
 
-  y += 12;
-  itens.forEach((item,idx) => {
-    const bg = idx%2===0 ? [252,245,248] : [255,255,255];
-    doc.setFillColor(...bg); doc.rect(MARGIN,y,W-MARGIN*2,9,'F');
-    doc.setFont('helvetica','normal'); doc.setFontSize(9); doc.setTextColor(...COR_TEXTO);
-    doc.text(item.prod, cols[0], y+6);
-    doc.text(String(item.qtd), cols[1], y+6);
-    doc.text(brl(item.preco), cols[2], y+6);
-    doc.text(brl(item.sub),   cols[3], y+6);
-    y += 9;
+  y+=12;
+  itens.forEach((item,idx)=>{
+    doc.setFillColor(...(idx%2===0?[252,245,248]:[255,255,255]));
+    doc.rect(M,y,W-M*2,9,'F');
+    doc.setFont('helvetica','normal'); doc.setFontSize(9); doc.setTextColor(...CT);
+    doc.text(item.prod,cols[0],y+6);
+    doc.text(String(item.qtd),cols[1],y+6);
+    doc.text(brl(item.preco),cols[2],y+6);
+    doc.text(brl(item.sub),cols[3],y+6);
+    y+=9;
   });
 
-  y += 4;
-  doc.setFillColor(...COR_VINHO); doc.roundedRect(MARGIN,y,W-MARGIN*2,13,3,3,'F');
-  doc.setFont('helvetica','bold'); doc.setFontSize(11); doc.setTextColor(255,255,255);
-  doc.text('TOTAL', cols[2], y+8.5);
-  doc.setTextColor(...COR_DOURADO);
-  doc.text(brl(total), cols[3], y+8.5);
+  y+=4;
+  doc.setFillColor(...CV); doc.roundedRect(M,y,W-M*2,13,3,3,'F');
+  doc.setFont('helvetica','bold'); doc.setFontSize(11);
+  doc.setTextColor(255,255,255); doc.text('TOTAL',cols[2],y+8.5);
+  doc.setTextColor(...CD); doc.text(brl(total),cols[3],y+8.5);
 
-  y += 26;
-  doc.setFont('helvetica','italic'); doc.setFontSize(8.5); doc.setTextColor(...COR_VINHO);
-  doc.text('Obrigada pela preferência! ♥  Mila Personaliza', W/2, y, {align:'center'});
+  y+=26;
+  doc.setFont('helvetica','italic'); doc.setFontSize(8.5); doc.setTextColor(...CV);
+  doc.text('Obrigada pela preferência! ♥  Mila Personaliza',W/2,y,{align:'center'});
 
   doc.save(`${numeroPedido}.pdf`);
   mostrarAlerta('PDF gerado e baixado com sucesso! ✓','sucesso');
 }
 
-/* ════════════════════════════════════════════
+/* ════════════════════════════════════════
    WHATSAPP
-════════════════════════════════════════════ */
+════════════════════════════════════════ */
 function enviarWhatsApp(){
   if(!validar()) return;
   preparar();
@@ -526,23 +625,22 @@ function enviarWhatsApp(){
   msg += `*🍬 Produtos:*\n`;
   itens.forEach(i => { msg += `• ${i.prod} × ${i.qtd} — ${brl(i.sub)}\n`; });
   msg += `\n*💰 TOTAL: ${brl(total)}*\n\n_Obrigada! ♥_`;
-  window.open('https://wa.me/?text=' + encodeURIComponent(msg), '_blank');
+  window.open('https://wa.me/?text='+encodeURIComponent(msg),'_blank');
   mostrarAlerta('WhatsApp aberto com o pedido! ✓','sucesso');
 }
 
-/* ════════════════════════════════════════════
+/* ════════════════════════════════════════
    LIMPAR
-════════════════════════════════════════════ */
+════════════════════════════════════════ */
 function limpar(){
-  ['cliente','telefone','endereco'].forEach(id => document.getElementById(id).value = '');
-  document.querySelectorAll('.seletor').forEach(s => s.value = '');
-  document.querySelectorAll('.qtd').forEach(q => q.value = '0');
-  numeroPedido = ''; dataEntrega = '';
-  ['num-pedido','data-emissao','data-entrega'].forEach(id => document.getElementById(id).textContent = '—');
+  ['cliente','telefone','endereco'].forEach(id => document.getElementById(id).value='');
+  document.querySelectorAll('.seletor').forEach(s => s.value='');
+  document.querySelectorAll('.qtd').forEach(q => q.value='0');
+  numeroPedido=''; dataEntrega='';
+  ['num-pedido','data-emissao','data-entrega'].forEach(id => document.getElementById(id).textContent='—');
   calcular();
 }
-
-calcular();
 </script>
+
 </body>
 </html>
